@@ -7,7 +7,7 @@ import {logger} from '../lib/logger.js';
 
 const router = Router();
 
-const PALETTE_KEYS = ['violet', 'mono', 'ultra', 'coronita'] as const;
+const PALETTE_KEYS = ['violet', 'mono', 'ultra', 'coronita', 'funky-house'] as const;
 
 const renderRequestSchema = z.object({
   artist: z.string().min(1).max(200),
@@ -69,6 +69,28 @@ router.post('/render', requireApiKey, async (req, res) => {
       message: 'Failed to create render job',
     });
   }
+});
+
+router.get('/render/:jobId/progress', requireApiKey, (req, res) => {
+  const jobIdParam = req.params.jobId;
+  const jobId = typeof jobIdParam === 'string' ? jobIdParam : jobIdParam?.[0];
+  if (!jobId) {
+    return res.status(400).json({error: 'invalid_request', message: 'Missing jobId'});
+  }
+  const job = getJob(jobId);
+  if (!job || job.api_key_id !== req.apiKey!.id) {
+    return res.status(404).json({error: 'not_found', message: 'Job not found'});
+  }
+
+  const isTerminal =
+    job.status === 'done' || job.status === 'failed' || job.status === 'cancelled';
+
+  return res.json({
+    job_id: job.id,
+    status: job.status,
+    progress: job.status === 'done' ? 100 : job.progress,
+    done: isTerminal,
+  });
 });
 
 router.get('/render/:jobId', requireApiKey, (req, res) => {

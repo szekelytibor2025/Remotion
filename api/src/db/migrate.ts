@@ -62,11 +62,6 @@ const migrations: {version: number; up: string}[] = [
         request_count INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (api_key_id, window_start)
       );
-
-      CREATE TABLE schema_version (
-        version INTEGER PRIMARY KEY,
-        applied_at INTEGER NOT NULL
-      );
     `,
   },
 ];

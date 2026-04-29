@@ -79,7 +79,8 @@ const worker = new Worker<RenderJobData>(
             | 'violet'
             | 'mono'
             | 'ultra'
-            | 'coronita',
+            | 'coronita'
+            | 'funky-house',
         },
         onProgress: (pct) => {
           const overall = 5 + Math.round(pct * 0.85);

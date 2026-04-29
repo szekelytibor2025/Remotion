@@ -49,7 +49,7 @@ export type Palette = {
   accent: string;
 };
 
-export type PaletteKey = 'violet' | 'mono' | 'ultra' | 'coronita';
+export type PaletteKey = 'violet' | 'mono' | 'ultra' | 'coronita' | 'funky-house';
 
 export const PALETTES: Record<PaletteKey, Palette> = {
   violet: {
@@ -75,6 +75,12 @@ export const PALETTES: Record<PaletteKey, Palette> = {
     secondary: '#fff599',
     deep: '#b8a900',
     accent: '#ffffff',
+  },
+  'funky-house': {
+    primary: '#ff4fa3',
+    secondary: '#ffb3d1',
+    deep: '#b8246e',
+    accent: '#ffd166',
   },
 };
 
