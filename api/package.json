@@ -1,0 +1,40 @@
+{
+  "name": "kessey-records-visualizer-api",
+  "version": "1.0.0",
+  "description": "HTTP API for the Kessey Records music visualizer renderer",
+  "private": true,
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "dev:worker": "tsx watch src/worker.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "start:worker": "node dist/worker.js",
+    "migrate": "tsx src/db/migrate.ts",
+    "create-key": "tsx scripts/create-api-key.ts",
+    "list-keys": "tsx scripts/list-api-keys.ts",
+    "revoke-key": "tsx scripts/revoke-api-key.ts"
+  },
+  "dependencies": {
+    "@remotion/bundler": "4.0.453",
+    "@remotion/renderer": "4.0.453",
+    "@supabase/supabase-js": "2.46.1",
+    "better-sqlite3": "12.9.0",
+    "bullmq": "5.34.10",
+    "dotenv": "16.4.7",
+    "express": "4.21.2",
+    "ioredis": "5.4.1",
+    "pino": "9.5.0",
+    "pino-http": "10.3.0",
+    "remotion": "4.0.453",
+    "zod": "3.24.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.13",
+    "@types/express": "5.0.0",
+    "@types/node": "22.10.2",
+    "tsx": "4.19.2",
+    "typescript": "5.7.3"
+  }
+}

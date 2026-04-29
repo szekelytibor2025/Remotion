@@ -1,0 +1,24 @@
+{
+  "name": "kessey-records-rings-visualizer",
+  "version": "1.0.0",
+  "description": "Kessey Records · RINGS music visualizer (Remotion · 4K · 60fps)",
+  "private": true,
+  "scripts": {
+    "start": "remotion studio",
+    "build": "remotion render",
+    "upgrade": "remotion upgrade"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.453",
+    "@remotion/google-fonts": "4.0.453",
+    "@remotion/media-utils": "4.0.453",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "remotion": "4.0.453"
+  },
+  "devDependencies": {
+    "@types/react": "19.0.0",
+    "@types/web": "0.0.166",
+    "typescript": "5.7.3"
+  }
+}
