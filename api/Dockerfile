@@ -57,4 +57,4 @@ RUN mkdir -p /app/data /app/work
 
 EXPOSE 3001
 
-CMD ["node", "dist/server.js"]
+CMD ["node", "dist/src/server.js"]

@@ -12,7 +12,8 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 DOMAIN="video.api.kesseyrecords.hu"
 EMAIL="tiborgaming2021@gmail.com"          # Let's Encrypt contact email
-REPO_DIR="/opt/kessey-api"                 # where the repo will live
+REPO_URL="https://github.com/szekelytibor2025/Remotion.git"  # GitHub repo
+REPO_DIR="/opt/kessey-api"                 # local path where repo is cloned
 COMPOSE_FILE="$REPO_DIR/docker-compose.yml"
 
 # ---------------------------------------------------------------------------
@@ -76,11 +77,8 @@ step_repo() {
     info "Repo already exists — pulling latest…"
     git -C "$REPO_DIR" pull --ff-only
   else
-    info "Cloning repository to $REPO_DIR…"
-    warn "Repo URL not set — place your project in $REPO_DIR manually"
-    warn "or uncomment and edit the git clone line below, then re-run."
-    # git clone https://github.com/YOUR_ORG/kessey-records-visualizer.git "$REPO_DIR"
-    mkdir -p "$REPO_DIR"
+    info "Cloning $REPO_URL → $REPO_DIR…"
+    git clone "$REPO_URL" "$REPO_DIR"
   fi
   ok "Repo ready at $REPO_DIR"
 }
@@ -138,9 +136,9 @@ step_firewall() {
   ufw --force reset
   ufw default deny incoming
   ufw default allow outgoing
-  ufw allow OpenSSH
-  ufw allow 80/tcp   comment "HTTP (Let'\''s Encrypt challenge)"
-  ufw allow 443/tcp  comment "HTTPS"
+  ufw allow 22/tcp
+  ufw allow 80/tcp
+  ufw allow 443/tcp
   ufw --force enable
   ok "Firewall active (SSH + 80 + 443 allowed)"
 }
@@ -324,10 +322,14 @@ step_containers() {
 # ---------------------------------------------------------------------------
 step_smoke() {
   info "Waiting for API to be ready…"
-  local max=30 i=0
+  local max=45 i=0
   until curl -sf http://127.0.0.1:3001/health > /dev/null 2>&1; do
     i=$((i+1))
-    [[ $i -ge $max ]] && { warn "API health check timed out — check logs:"; docker compose -C "$REPO_DIR" logs api; return 1; }
+    if [[ $i -ge $max ]]; then
+      warn "API health check timed out — check logs:"
+      docker compose --project-directory "$REPO_DIR" logs api
+      return 1
+    fi
     sleep 2
   done
   ok "API is up — http://127.0.0.1:3001/health"
@@ -354,15 +356,15 @@ print_summary() {
   echo "║  API     : https://$DOMAIN/api/v1/render ║"
   echo "╠══════════════════════════════════════════════════════════════════╣"
   echo "║  Useful commands:                                                ║"
-  echo "║  docker compose -C $REPO_DIR logs -f api    ║"
-  echo "║  docker compose -C $REPO_DIR logs -f worker ║"
-  echo "║  docker compose -C $REPO_DIR ps             ║"
+  echo "║  docker compose --project-directory $REPO_DIR logs -f api    ║"
+  echo "║  docker compose --project-directory $REPO_DIR logs -f worker ║"
+  echo "║  docker compose --project-directory $REPO_DIR ps             ║"
   echo "╠══════════════════════════════════════════════════════════════════╣"
   echo "║  Next steps:                                                     ║"
   echo "║  1. Edit $REPO_DIR/api/.env with real secrets     ║"
-  echo "║  2. Restart: docker compose -C $REPO_DIR up -d   ║"
+  echo "║  2. Restart: docker compose --project-directory $REPO_DIR up -d   ║"
   echo "║  3. Create API key:                                              ║"
-  echo "║     docker compose -C $REPO_DIR exec api          ║"
+  echo "║     docker compose --project-directory $REPO_DIR exec api          ║"
   echo "║       node dist/scripts/create-key.js             ║"
   echo "╚══════════════════════════════════════════════════════════════════╝"
 }

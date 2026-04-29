@@ -41,7 +41,7 @@ services:
       - api/.env
     environment:
       REDIS_URL: redis://redis:6379
-    command: ["node", "dist/worker.js"]
+    command: ["node", "dist/src/worker.js"]
     volumes:
       - api-data:/app/data
       - worker-tmp:/app/work
