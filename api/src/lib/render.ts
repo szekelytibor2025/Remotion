@@ -39,7 +39,7 @@ export type RenderInputProps = {
   catalog: string;
   year: string;
   audioUrl: string;
-  paletteKey: 'violet' | 'mono' | 'ultra' | 'coronita' | 'funky-house';
+  paletteKey: 'default';
 };
 
 export type RenderOptions = {

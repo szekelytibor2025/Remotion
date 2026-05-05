@@ -75,12 +75,7 @@ const worker = new Worker<RenderJobData>(
           catalog: job.catalog,
           year: job.year,
           audioUrl: audioFileUrl,
-          paletteKey: job.palette_key as
-            | 'violet'
-            | 'mono'
-            | 'ultra'
-            | 'coronita'
-            | 'funky-house',
+          paletteKey: job.palette_key as 'default',
         },
         onProgress: (pct) => {
           const overall = 5 + Math.round(pct * 0.85);

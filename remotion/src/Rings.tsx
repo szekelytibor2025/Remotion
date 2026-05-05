@@ -6,83 +6,14 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
-import {loadFont as loadGeist} from '@remotion/google-fonts/Geist';
-import {loadFont as loadGeistMono} from '@remotion/google-fonts/GeistMono';
-import {getActiveRings, getAudio, useKickAnalysis} from './audio';
+import {
+  countOnsetsUpTo,
+  getRecentOnsetStrength,
+  SPECTRUM_BINS,
+  useFullAnalysis,
+} from './audio';
 
-const geist = loadGeist('normal', {
-  weights: ['400', '500', '600', '700', '800', '900'],
-  subsets: ['latin'],
-});
-const geistMono = loadGeistMono('normal', {
-  weights: ['400', '500', '600'],
-  subsets: ['latin'],
-});
-
-const sansFamily = geist.fontFamily;
-const monoFamily = geistMono.fontFamily;
-
-const estimateBpmFromKicks = (kickFrames: number[], fps: number): number => {
-  if (kickFrames.length < 4) return 128;
-  const intervals: number[] = [];
-  for (let i = 1; i < kickFrames.length; i++) {
-    intervals.push(kickFrames[i]! - kickFrames[i - 1]!);
-  }
-  intervals.sort((a, b) => a - b);
-  const trimStart = Math.floor(intervals.length * 0.2);
-  const trimEnd = Math.ceil(intervals.length * 0.8);
-  const trimmed = intervals.slice(trimStart, trimEnd);
-  if (trimmed.length === 0) return 128;
-  const medianFrameInterval =
-    trimmed.reduce((sum, v) => sum + v, 0) / trimmed.length;
-  if (medianFrameInterval <= 0) return 128;
-  let bpm = (60 * fps) / medianFrameInterval;
-  while (bpm < 90) bpm *= 2;
-  while (bpm > 180) bpm /= 2;
-  return bpm;
-};
-
-export type Palette = {
-  primary: string;
-  secondary: string;
-  deep: string;
-  accent: string;
-};
-
-export type PaletteKey = 'violet' | 'mono' | 'ultra' | 'coronita' | 'funky-house';
-
-export const PALETTES: Record<PaletteKey, Palette> = {
-  violet: {
-    primary: '#8b5cf6',
-    secondary: '#a78bfa',
-    deep: '#7c3aed',
-    accent: '#d946ef',
-  },
-  mono: {
-    primary: '#f0f0f5',
-    secondary: '#c8c8d0',
-    deep: '#64647a',
-    accent: '#8b5cf6',
-  },
-  ultra: {
-    primary: '#a78bfa',
-    secondary: '#d946ef',
-    deep: '#8b5cf6',
-    accent: '#3b82f6',
-  },
-  coronita: {
-    primary: '#ffed00',
-    secondary: '#fff599',
-    deep: '#b8a900',
-    accent: '#ffffff',
-  },
-  'funky-house': {
-    primary: '#ff4fa3',
-    secondary: '#ffb3d1',
-    deep: '#b8246e',
-    accent: '#ffd166',
-  },
-};
+export type PaletteKey = 'default';
 
 export type RingsProps = {
   artist: string;
@@ -93,433 +24,702 @@ export type RingsProps = {
   paletteKey: PaletteKey;
 };
 
-const FIXED_INTENSITY = 0.7;
-const DEFAULT_BPM = 128;
-
 const VIEWBOX_W = 1920;
 const VIEWBOX_H = 1080;
-const CENTER_X = VIEWBOX_W * 0.68;
-const CENTER_Y = VIEWBOX_H * 0.5;
 
-const NP_PULSE_KEYFRAMES = `
-@keyframes np-pulse {
+const ORB_CX = 1380;
+const ORB_CY = 540;
+
+const KESSEY_PURPLE = '#9D00FF';
+const KESSEY_PURPLE_GLOW = '#B833FF';
+const KESSEY_PURPLE_DEEP = '#6B00B0';
+const KESSEY_BORDER = '#2C2A38';
+const KESSEY_SMOKE_MID = '#2C2A38';
+const TEXT_PRIMARY = '#FFFFFF';
+const TEXT_SECONDARY = '#C9C9D1';
+const TEXT_MUTED = '#6B6B78';
+
+const FONT_DISPLAY = "'Druk Wide', 'Arial Black', Impact, sans-serif";
+const FONT_BODY =
+  "'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif";
+const FONT_MONO = "'IBM Plex Mono', ui-monospace, monospace";
+
+const FONT_FACES_CSS = `
+@font-face {
+  font-family: 'Druk Wide';
+  src: url('${staticFile('fonts/druk-wide-bold.ttf')}') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  src: url('${staticFile('fonts/IBMPlexSans.ttf')}') format('truetype-variations');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  src: url('${staticFile('fonts/IBMPlexMono-Regular.ttf')}') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+@keyframes kr-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(1.3); }
+  50%      { opacity: 0.5; transform: scale(1.25); }
+}
+@keyframes kr-orb-1 {
+  0%   { transform: translate(0,0) scale(1); }
+  100% { transform: translate(60px, 80px) scale(1.08); }
+}
+@keyframes kr-orb-2 {
+  0%   { transform: translate(0,0) scale(1); }
+  100% { transform: translate(-80px, -60px) scale(1.12); }
 }
 `;
 
-const formatTime = (seconds: number): string => {
-  const safe = Math.max(0, seconds);
-  const m = Math.floor(safe / 60);
-  const s = Math.floor(safe % 60)
-    .toString()
-    .padStart(2, '0');
-  return `${m}:${s}`;
+type AudioState = {
+  // Sustained band envelopes (0..1, normalised per-track via 95th percentile).
+  bass: number; // 60–200 Hz — drives orb radius, core flash
+  subBass: number; // 20–60 Hz — sub-frequency haze
+  mid: number; // 500–2000 Hz — outer haze breath, ring spread
+  high: number; // 6–16 kHz — sparks density / brightness
+  // Onset transients with short decay (kick, snare, hihat).
+  kickHit: number;
+  snareHit: number;
+  hihatHit: number;
+  // Per-frame log-spaced spectrum, 48 bins.
+  spectrum: Float32Array;
+  // Number of kicks observed up to and including this frame.
+  barCount: number;
 };
+
+const EMPTY_SPECTRUM = new Float32Array(SPECTRUM_BINS);
+
+const fmt = (seconds: number): string => {
+  const s = Math.max(0, Math.floor(seconds));
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+};
+
+const fmtNeg = (seconds: number): string => '-' + fmt(seconds);
+
+const GLOW_MULT = 1;
+
+// Onset decay constants (seconds). Drum hits visibly punch, then settle.
+const KICK_DECAY = 0.18;
+const SNARE_DECAY = 0.16;
+const HIHAT_DECAY = 0.08;
 
 export const Rings: React.FC<RingsProps> = ({
   artist,
   title,
   catalog,
-  year,
   audioUrl,
-  paletteKey,
 }) => {
   const frame = useCurrentFrame();
   const {fps, durationInFrames} = useVideoConfig();
-  const palette = PALETTES[paletteKey] ?? PALETTES.violet;
+  const analysis = useFullAnalysis(audioUrl, fps);
   const t = frame / fps;
-  const kickAnalysis = useKickAnalysis(audioUrl, fps);
 
-  const estimatedBpm = kickAnalysis
-    ? estimateBpmFromKicks(kickAnalysis.kickFrames, fps)
-    : DEFAULT_BPM;
-  const audio = getAudio(t, FIXED_INTENSITY, estimatedBpm);
+  const audio: AudioState = (() => {
+    if (!analysis) {
+      return {
+        bass: 0,
+        subBass: 0,
+        mid: 0,
+        high: 0,
+        kickHit: 0,
+        snareHit: 0,
+        hihatHit: 0,
+        spectrum: EMPTY_SPECTRUM,
+        barCount: 0,
+      };
+    }
+    const safeFrame = Math.min(frame, analysis.totalFrames - 1);
+    const base = safeFrame * SPECTRUM_BINS;
+    // Float32Array views are zero-copy and safe to read directly.
+    const spectrum = analysis.spectrum.subarray(base, base + SPECTRUM_BINS);
+    return {
+      bass: analysis.bands.bass[safeFrame] ?? 0,
+      subBass: analysis.bands.subBass[safeFrame] ?? 0,
+      mid: analysis.bands.mid[safeFrame] ?? 0,
+      high: analysis.bands.air[safeFrame] ?? 0,
+      kickHit: getRecentOnsetStrength(frame, fps, analysis.kicks, KICK_DECAY),
+      snareHit: getRecentOnsetStrength(frame, fps, analysis.snares, SNARE_DECAY),
+      hihatHit: getRecentOnsetStrength(frame, fps, analysis.hihats, HIHAT_DECAY),
+      spectrum,
+      barCount: countOnsetsUpTo(frame, analysis.kicks),
+    };
+  })();
 
   const trackCurrent = t;
   const trackDuration = durationInFrames / fps;
 
-  const rings = kickAnalysis
-    ? getActiveRings(
-        frame,
-        fps,
-        kickAnalysis.kickFrames,
-        kickAnalysis.kickStrengthByFrame,
-      )
-    : [];
-
-  const recentKickStrength = (() => {
-    if (!kickAnalysis) return 0;
-    for (let i = kickAnalysis.kickFrames.length - 1; i >= 0; i--) {
-      const kf = kickAnalysis.kickFrames[i]!;
-      if (kf > frame) continue;
-      const age = (frame - kf) / fps;
-      if (age > 0.18) break;
-      const decay = Math.max(0, 1 - age / 0.18);
-      const strength = kickAnalysis.kickStrengthByFrame.get(kf) ?? 0;
-      return decay * strength;
-    }
-    return 0;
-  })();
-
   return (
-    <AbsoluteFill style={{backgroundColor: '#06060a'}}>
-      <style>{NP_PULSE_KEYFRAMES}</style>
+    <AbsoluteFill style={{backgroundColor: '#06060A', fontFamily: FONT_BODY}}>
+      <style>{FONT_FACES_CSS}</style>
 
       <Audio src={audioUrl} />
 
+      {/* Backdrop — black & white photo */}
       <div
         style={{
           position: 'absolute',
           inset: 0,
-          background: `radial-gradient(circle at 68% 50%, ${palette.primary}1f 0%, ${palette.deep}0a 40%, transparent 70%)`,
+          backgroundImage: `url(${staticFile('background.jpg')})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          filter: 'grayscale(1) contrast(1.1) brightness(0.55)',
         }}
       />
 
-      <svg
-        viewBox={`0 0 ${VIEWBOX_W} ${VIEWBOX_H}`}
-        preserveAspectRatio="xMidYMid slice"
+      {/* Left-side darkening: gets darker as we move from center to the
+          left edge so the chrome text stays legible. */}
+      <div
         style={{
           position: 'absolute',
           inset: 0,
-          width: '100%',
-          height: '100%',
+          pointerEvents: 'none',
+          background:
+            'linear-gradient(to left, rgba(0,0,0,0) 50%, rgba(0,0,0,0.55) 75%, rgba(0,0,0,0.9) 100%)',
+        }}
+      />
+
+      {/* Subtle deep-purple wash over the top for brand mood */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          background:
+            'radial-gradient(120% 80% at 70% 50%, rgba(21,16,42,0.45) 0%, rgba(6,6,10,0.6) 55%, rgba(0,0,0,0.85) 100%)',
+          mixBlendMode: 'multiply',
+        }}
+      />
+
+      {/* Ambient bg orbs */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
         }}
       >
-        {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-          <circle
-            key={`g${i}`}
-            cx={CENTER_X}
-            cy={CENTER_Y}
-            r={i * 75}
-            fill="none"
-            stroke={palette.primary}
-            strokeOpacity={0.06}
-            strokeWidth={1}
-          />
-        ))}
-
-        <line
-          x1={CENTER_X - 30}
-          y1={CENTER_Y}
-          x2={CENTER_X + 30}
-          y2={CENTER_Y}
-          stroke={palette.secondary}
-          strokeOpacity={0.4}
-          strokeWidth={1}
+        <div
+          style={{
+            position: 'absolute',
+            width: 900,
+            height: 900,
+            borderRadius: 999,
+            filter: 'blur(140px)',
+            opacity: 0.55,
+            mixBlendMode: 'screen',
+            top: -240,
+            left: -200,
+            background: `radial-gradient(circle, ${KESSEY_PURPLE_DEEP} 0%, transparent 65%)`,
+            transform: `translate(${
+              30 + 30 * Math.sin(t * 0.22)
+            }px, ${40 + 40 * Math.cos(t * 0.18)}px) scale(${
+              1.04 + 0.04 * Math.sin(t * 0.22)
+            })`,
+          }}
         />
-        <line
-          x1={CENTER_X}
-          y1={CENTER_Y - 30}
-          x2={CENTER_X}
-          y2={CENTER_Y + 30}
-          stroke={palette.secondary}
-          strokeOpacity={0.4}
-          strokeWidth={1}
+        <div
+          style={{
+            position: 'absolute',
+            width: 900,
+            height: 900,
+            borderRadius: 999,
+            filter: 'blur(140px)',
+            opacity: 0.55,
+            mixBlendMode: 'screen',
+            bottom: -300,
+            right: -260,
+            background: `radial-gradient(circle, ${KESSEY_PURPLE} 0%, transparent 65%)`,
+            transform: `translate(${
+              -40 - 40 * Math.sin(t * 0.2)
+            }px, ${-30 - 30 * Math.cos(t * 0.16)}px) scale(${
+              1.06 + 0.06 * Math.sin(t * 0.2)
+            })`,
+          }}
         />
-        <circle
-          cx={CENTER_X}
-          cy={CENTER_Y}
-          r={6 + recentKickStrength * 20}
-          fill={palette.secondary}
-          opacity={0.5 + recentKickStrength * 0.5}
-        />
+      </div>
 
-        {rings.map((ring) => (
-          <circle
-            key={ring.bornFrame}
-            cx={CENTER_X}
-            cy={CENTER_Y}
-            r={ring.r}
-            fill="none"
-            stroke={palette.primary}
-            strokeOpacity={ring.alpha * 0.7}
-            strokeWidth={ring.strokeWidth}
-          />
-        ))}
+      {/* Visualiser SVG */}
+      <OrbViz audio={audio} />
 
-        {Array.from({length: 64}).map((_, i) => {
-          const ang = (i / 64) * Math.PI * 2;
-          const wave = Math.sin(t * 3 + i * 0.4);
-          const len = 12 + (wave + 1) * 30 * (0.4 + audio.bass * 0.6);
-          const r1 = 470;
-          const r2 = r1 + len;
-          const x1 = CENTER_X + Math.cos(ang) * r1;
-          const y1 = CENTER_Y + Math.sin(ang) * r1;
-          const x2 = CENTER_X + Math.cos(ang) * r2;
-          const y2 = CENTER_Y + Math.sin(ang) * r2;
-          return (
-            <line
-              key={i}
-              x1={x1}
-              y1={y1}
-              x2={x2}
-              y2={y2}
-              stroke={palette.primary}
-              strokeOpacity={0.3 + wave * 0.4}
-              strokeWidth={1.5}
-              strokeLinecap="round"
-            />
-          );
-        })}
-
-        <g transform={`translate(${CENTER_X} ${CENTER_Y}) rotate(${t * 18})`}>
-          {[0, 1, 2, 3, 4, 5].map((i) => {
-            const ang = (i / 6) * Math.PI * 2;
-            const r = 240 * (0.9 + audio.mid * 0.15);
-            return (
-              <circle
-                key={i}
-                cx={Math.cos(ang) * r}
-                cy={Math.sin(ang) * r}
-                r={4 + recentKickStrength * 8}
-                fill={palette.secondary}
-              />
-            );
-          })}
-          <polygon
-            points={[0, 1, 2, 3, 4, 5]
-              .map((i) => {
-                const ang = (i / 6) * Math.PI * 2;
-                const r = 240 * (0.9 + audio.mid * 0.15);
-                return `${Math.cos(ang) * r},${Math.sin(ang) * r}`;
-              })
-              .join(' ')}
-            fill="none"
-            stroke={palette.primary}
-            strokeOpacity={0.45}
-            strokeWidth={1}
-          />
-        </g>
-      </svg>
-
-      <TrackInfo
+      {/* Chrome */}
+      <Chrome
         artist={artist}
         title={title}
-        current={trackCurrent}
-        duration={trackDuration}
-        palette={palette}
-      />
-      <LogoMark />
-      <FrameMeta
         catalog={catalog}
-        year={year}
-        palette={palette}
-        beat={audio.beat}
+        audio={audio}
+        played={trackCurrent}
+        total={trackDuration}
       />
+
+      {/* Vignette */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          background:
+            'radial-gradient(140% 100% at 50% 50%, transparent 50%, rgba(0,0,0,0.6) 100%)',
+        }}
+      />
+
+      <style>{`
+        body { color: ${TEXT_PRIMARY}; }
+      `}</style>
     </AbsoluteFill>
   );
 };
 
-const TrackInfo: React.FC<{
-  artist: string;
-  title: string;
-  current: number;
-  duration: number;
-  palette: Palette;
-}> = ({artist, title, current, duration, palette}) => {
-  const fg = '#f0f0f5';
-  const muted = '#8a8a9a';
-  const pct = Math.min(100, (current / Math.max(duration, 0.0001)) * 100);
+const OrbViz: React.FC<{audio: AudioState}> = ({audio}) => {
+  const {bass, subBass, mid, high, kickHit, snareHit, hihatHit, spectrum, barCount} =
+    audio;
+  const baseR = 280;
+  // Sustained bass envelope drives the slow breathing; a kick transient adds a
+  // snappy radius pulse on top so each hit is visible.
+  const r = baseR + bass * 70 + kickHit * 60;
+  const cx = ORB_CX;
+  const cy = ORB_CY;
+  // Sub-bass fattens the haze, mids breathe slower around it.
+  const hazeR = r + 240 + mid * 120 + subBass * 100;
+  const coreR = 70 + kickHit * 70 + bass * 30;
+
+  // Concentric rings — base radius reacts to bass envelope, snare hits push an
+  // extra spread (a brief outer expansion, like a clap echoing past the orb).
+  const rings = [];
+  for (let i = 0; i < 6; i++) {
+    const rr = r + i * 36 + mid * 10 + snareHit * (24 + i * 18);
+    rings.push(
+      <circle
+        key={`ring-${i}`}
+        cx={cx}
+        cy={cy}
+        r={rr}
+        fill="none"
+        stroke={KESSEY_PURPLE}
+        strokeOpacity={(0.55 - i * 0.08) * (1 + snareHit * 0.4)}
+        strokeWidth={i === 0 ? 2 + snareHit * 1.5 : 1}
+        style={{
+          filter: `drop-shadow(0 0 ${10 * GLOW_MULT}px rgba(157,0,255,${
+            0.6 - i * 0.07
+          }))`,
+        }}
+      />,
+    );
+  }
+
+  // Radial spikes are driven by the actual log-spaced spectrum.
+  const spikes = [];
+  const N = 96;
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2;
+    const v = spectrum[i % spectrum.length] ?? 0;
+    const inner = r - 6;
+    const outer = r + 12 + v * (140 + bass * 60 + kickHit * 80);
+    const x1 = cx + Math.cos(a) * inner;
+    const y1 = cy + Math.sin(a) * inner;
+    const x2 = cx + Math.cos(a) * outer;
+    const y2 = cy + Math.sin(a) * outer;
+    spikes.push(
+      <line
+        key={`s-${i}`}
+        x1={x1}
+        y1={y1}
+        x2={x2}
+        y2={y2}
+        stroke={KESSEY_PURPLE_GLOW}
+        strokeOpacity={0.45 + v * 0.5}
+        strokeWidth={1.2}
+      />,
+    );
+  }
+
+  // Sparks: hihats spawn extras and brighten the swarm. The visible count
+  // grows with hihatHit so on a fast hat pattern the orb glitters.
+  const sparkCount = Math.round(24 + hihatHit * 36 + high * 20);
+  const sparks = [];
+  for (let i = 0; i < sparkCount; i++) {
+    const a = (i / sparkCount) * Math.PI * 2 + barCount * 0.05;
+    const seed = Math.abs(Math.sin(i * 12.9898 + barCount * 0.3));
+    const seed2 = Math.abs(Math.sin(i * 78.233 + barCount * 0.7));
+    const rr = r + 80 + seed * (160 + 120 * high + 80 * hihatHit);
+    sparks.push(
+      <circle
+        key={`spk-${i}`}
+        cx={cx + Math.cos(a) * rr}
+        cy={cy + Math.sin(a) * rr}
+        r={1.2 + seed2 * (1.5 + hihatHit * 1.2)}
+        fill="#FFFFFF"
+        opacity={0.35 + high * 0.4 + hihatHit * 0.5}
+      />,
+    );
+  }
+
+  return (
+    <svg
+      viewBox={`0 0 ${VIEWBOX_W} ${VIEWBOX_H}`}
+      preserveAspectRatio="xMidYMid slice"
+      style={{
+        position: 'absolute',
+        inset: 0,
+        width: '100%',
+        height: '100%',
+      }}
+      aria-hidden="true"
+    >
+      <defs>
+        <radialGradient id="orbCore" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.95" />
+          <stop offset="22%" stopColor="#E5BFFF" stopOpacity="0.85" />
+          <stop offset="55%" stopColor={KESSEY_PURPLE} stopOpacity="0.55" />
+          <stop offset="100%" stopColor={KESSEY_PURPLE} stopOpacity="0" />
+        </radialGradient>
+        <radialGradient id="orbHaze" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor={KESSEY_PURPLE} stopOpacity="0.45" />
+          <stop offset="60%" stopColor={KESSEY_PURPLE_DEEP} stopOpacity="0.18" />
+          <stop offset="100%" stopColor="#06060A" stopOpacity="0" />
+        </radialGradient>
+        <filter id="orbBlur" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation={`${22 * GLOW_MULT}`} />
+        </filter>
+      </defs>
+
+      <circle
+        cx={cx}
+        cy={cy}
+        r={hazeR}
+        fill="url(#orbHaze)"
+        opacity={0.85 * GLOW_MULT}
+        filter="url(#orbBlur)"
+      />
+
+      <g opacity={0.85}>{spikes}</g>
+
+      {rings}
+
+      <circle
+        cx={cx}
+        cy={cy}
+        r={r * 0.95}
+        fill="url(#orbCore)"
+        opacity={0.78 + kickHit * 0.18}
+        style={{
+          filter: `drop-shadow(0 0 ${(60 + kickHit * 60) * GLOW_MULT}px rgba(157,0,255,${
+            0.6 + bass * 0.25 + kickHit * 0.4
+          }))`,
+        }}
+      />
+
+      <circle
+        cx={cx}
+        cy={cy}
+        r={coreR}
+        fill="#FFFFFF"
+        opacity={0.7 + kickHit * 0.3}
+        style={{
+          filter: `drop-shadow(0 0 ${(30 + kickHit * 50) * GLOW_MULT}px rgba(232,170,255,${
+            0.85 + kickHit * 0.15
+          }))`,
+        }}
+      />
+
+      {sparks}
+    </svg>
+  );
+};
+
+const ProgressBar: React.FC<{
+  played: number;
+  total: number;
+  audio: AudioState;
+}> = ({played, total, audio}) => {
+  const pct = total > 0 ? played / total : 0;
+  const N = 120;
+  const filled = Math.floor(N * pct);
+  const segs = [];
+  for (let i = 0; i < N; i++) {
+    const isFilled = i <= filled;
+    const headPulse = i === filled ? 1 + audio.bass * 0.6 : 1;
+    segs.push(
+      <span
+        key={i}
+        style={{
+          display: 'inline-block',
+          flex: '1 1 0',
+          minWidth: 0,
+          borderRadius: 1,
+          background: isFilled ? KESSEY_PURPLE : KESSEY_SMOKE_MID,
+          opacity: isFilled ? (i === filled ? 1 : 0.85) : 0.55,
+          height: i === filled ? 10 * headPulse : 6,
+          boxShadow: isFilled
+            ? `0 0 ${12 * GLOW_MULT}px rgba(157,0,255,${
+                i === filled ? 0.95 : 0.55
+              })`
+            : 'none',
+        }}
+      />,
+    );
+  }
   return (
     <div
       style={{
-        position: 'absolute',
-        left: 128,
-        top: '50%',
-        transform: 'translateY(-50%)',
-        zIndex: 10,
-        maxWidth: 1152,
+        flex: 'none',
+        width: 416,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 2,
+        height: 14,
+        overflow: 'hidden',
       }}
     >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 24,
-          marginBottom: 67,
-          fontFamily: monoFamily,
-          fontSize: 26,
-          letterSpacing: '0.22em',
-          textTransform: 'uppercase',
-          color: muted,
-        }}
-      >
-        <span
-          style={{
-            width: 19,
-            height: 19,
-            borderRadius: '50%',
-            background: palette.primary,
-            boxShadow: `0 0 29px ${palette.primary}`,
-            animation: 'np-pulse 1.5s ease-in-out infinite',
-            display: 'inline-block',
-          }}
-        />
-        Now Playing
-      </div>
-      <div
-        style={{
-          fontFamily: monoFamily,
-          fontSize: 31,
-          letterSpacing: '0.18em',
-          textTransform: 'uppercase',
-          color: palette.secondary,
-          marginBottom: 34,
-          fontWeight: 500,
-        }}
-      >
-        {artist}
-      </div>
-      <div
-        style={{
-          fontFamily: sansFamily,
-          fontSize: 134,
-          lineHeight: 1.02,
-          letterSpacing: '-0.03em',
-          color: fg,
-          fontWeight: 700,
-          marginBottom: 86,
-        }}
-      >
-        {title}
-      </div>
-      <div
-        style={{
-          width: 864,
-          height: 5,
-          background: 'rgba(255,255,255,0.08)',
-          position: 'relative',
-          marginBottom: 29,
-        }}
-      >
-        <div
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            bottom: 0,
-            width: `${pct}%`,
-            background: `linear-gradient(90deg, ${palette.primary}, ${palette.secondary})`,
-            boxShadow: `0 0 19px ${palette.primary}`,
-          }}
-        />
-        <div
-          style={{
-            position: 'absolute',
-            left: `${pct}%`,
-            top: '50%',
-            width: 19,
-            height: 19,
-            borderRadius: '50%',
-            background: palette.secondary,
-            boxShadow: `0 0 34px ${palette.primary}`,
-            transform: 'translate(-50%, -50%)',
-          }}
-        />
-      </div>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          width: 864,
-          fontFamily: monoFamily,
-          fontSize: 26,
-          letterSpacing: '0.15em',
-          color: muted,
-        }}
-      >
-        <span style={{color: fg}}>{formatTime(current)}</span>
-        <span>{formatTime(duration)}</span>
-      </div>
+      {segs}
     </div>
   );
 };
 
-const LogoMark: React.FC = () => (
-  <div
-    style={{
-      position: 'absolute',
-      top: 80,
-      right: 112,
-      zIndex: 10,
-      display: 'flex',
-      alignItems: 'center',
-      gap: 28,
-      opacity: 0.85,
-    }}
-  >
-    <img
-      src={staticFile('kessey_white.png')}
-      alt="Kessey Records"
-      style={{width: 86, height: 86, objectFit: 'contain'}}
-    />
+const Chrome: React.FC<{
+  artist: string;
+  title: string;
+  catalog: string;
+  audio: AudioState;
+  played: number;
+  total: number;
+}> = ({artist, title, catalog, audio, played, total}) => {
+  return (
     <div
       style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 5,
-        fontFamily: monoFamily,
-        fontSize: 24,
-        letterSpacing: '0.25em',
-        textTransform: 'uppercase',
-        color: '#f0f0f5',
-        lineHeight: 1.2,
+        position: 'absolute',
+        inset: 0,
+        zIndex: 5,
+        pointerEvents: 'none',
+        color: TEXT_PRIMARY,
       }}
     >
-      <span style={{fontWeight: 600}}>Kessey</span>
-      <span style={{color: '#8a8a9a'}}>Records</span>
-    </div>
-  </div>
-);
-
-const FrameMeta: React.FC<{
-  catalog: string;
-  year: string;
-  palette: Palette;
-  beat: number;
-}> = ({catalog, year, palette, beat}) => {
-  const muted = '#5a5a6a';
-  return (
-    <>
+      {/* TOP-LEFT — logo + label */}
       <div
         style={{
           position: 'absolute',
-          left: 128,
-          bottom: 80,
-          zIndex: 10,
-          fontFamily: monoFamily,
-          fontSize: 24,
-          letterSpacing: '0.22em',
-          textTransform: 'uppercase',
-          color: muted,
+          top: 56,
+          left: 80,
           display: 'flex',
-          gap: 58,
+          flexDirection: 'column',
+          gap: 16,
         }}
       >
-        <span>{catalog}</span>
-        <span>{year}</span>
-        <span style={{color: palette.secondary}}>VINYL · DIGITAL</span>
+        <div style={{display: 'flex', alignItems: 'center', gap: 18}}>
+          <img
+            src={staticFile('logo-white.png')}
+            alt="Kessey Records"
+            style={{
+              height: 38,
+              width: 'auto',
+              filter: 'drop-shadow(0 0 14px rgba(157,0,255,0.4))',
+            }}
+          />
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '6px 12px',
+              border: `1px solid ${KESSEY_BORDER}`,
+              background: 'rgba(10,10,12,0.55)',
+              fontFamily: FONT_BODY,
+              fontWeight: 700,
+              fontSize: 12,
+              letterSpacing: '0.18em',
+              textTransform: 'uppercase',
+              color: TEXT_SECONDARY,
+            }}
+          >
+            <span
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: 999,
+                background: KESSEY_PURPLE,
+                boxShadow: '0 0 12px rgba(157,0,255,0.85)',
+                animation: 'kr-pulse 2s ease-in-out infinite',
+                display: 'inline-block',
+              }}
+            />
+            <span style={{fontFamily: FONT_MONO}}>REC · {catalog}</span>
+          </div>
+        </div>
+        <div
+          style={{
+            color: TEXT_MUTED,
+            fontFamily: FONT_BODY,
+            fontWeight: 700,
+            fontSize: 11,
+            letterSpacing: '0.22em',
+            textTransform: 'uppercase',
+          }}
+        >
+          {`${catalog} · KESSEY RECORDS`}
+        </div>
       </div>
+
+      {/* CENTER-LEFT — artist + title */}
       <div
         style={{
           position: 'absolute',
-          right: 112,
-          bottom: 80,
-          zIndex: 10,
+          left: 80,
+          top: '50%',
+          transform: 'translateY(-50%)',
+          maxWidth: 760,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 18,
         }}
       >
-        <span
+        <div
           style={{
-            display: 'inline-block',
-            width: 16,
-            height: 16,
-            background: palette.primary,
-            opacity: 0.4 + beat * 0.6,
-            boxShadow: `0 0 ${8 + beat * 24}px ${palette.primary}`,
+            display: 'inline-flex',
+            alignSelf: 'flex-start',
+            alignItems: 'center',
+            gap: 10,
+            padding: '7px 14px',
+            border: `1px solid ${KESSEY_PURPLE}`,
+            color: TEXT_PRIMARY,
+            background: 'rgba(157,0,255,0.08)',
+            fontFamily: FONT_BODY,
+            fontWeight: 700,
+            fontSize: 11,
+            letterSpacing: '0.22em',
+            textTransform: 'uppercase',
+            boxShadow:
+              '0 0 14px rgba(157,0,255,0.55) inset, 0 0 20px rgba(157,0,255,0.35)',
           }}
-        />
+        >
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: 999,
+              background: KESSEY_PURPLE,
+              boxShadow: '0 0 12px rgba(157,0,255,0.95)',
+              animation: 'kr-pulse 1.6s ease-in-out infinite',
+              display: 'inline-block',
+            }}
+          />
+          NOW PLAYING
+        </div>
+        <h1
+          style={{
+            fontFamily: FONT_DISPLAY,
+            fontWeight: 700,
+            fontSize: 72,
+            lineHeight: 0.86,
+            letterSpacing: '0.005em',
+            textTransform: 'uppercase',
+            color: '#fff',
+            margin: 0,
+            textShadow: '0 0 28px rgba(157,0,255,0.45)',
+          }}
+        >
+          {artist}
+        </h1>
+        <h2
+          style={{
+            fontFamily: FONT_DISPLAY,
+            fontWeight: 700,
+            fontSize: 40,
+            lineHeight: 1,
+            letterSpacing: '0.04em',
+            textTransform: 'uppercase',
+            margin: 0,
+            color: KESSEY_PURPLE_GLOW,
+            textShadow: '0 0 20px rgba(184,51,255,0.6)',
+          }}
+        >
+          {title}
+        </h2>
       </div>
-    </>
+
+      {/* BOTTOM — progress + signature */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 80,
+          width: 500,
+          bottom: 56,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 18,
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 16,
+            fontSize: 18,
+            letterSpacing: '0.05em',
+            color: TEXT_PRIMARY,
+          }}
+        >
+          <span
+            style={{
+              fontFamily: FONT_MONO,
+              fontSize: 22,
+              fontWeight: 600,
+              letterSpacing: '0.04em',
+              color: '#fff',
+            }}
+          >
+            {fmt(played)}
+          </span>
+          <ProgressBar played={played} total={total} audio={audio} />
+          <span
+            style={{
+              fontFamily: FONT_MONO,
+              fontSize: 22,
+              fontWeight: 600,
+              letterSpacing: '0.04em',
+              color: TEXT_MUTED,
+            }}
+          >
+            {fmtNeg(total - played)}
+          </span>
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-start',
+            gap: 32,
+            alignItems: 'center',
+            fontFamily: FONT_MONO,
+            fontSize: 11,
+            letterSpacing: '0.22em',
+            textTransform: 'uppercase',
+            color: TEXT_MUTED,
+          }}
+        >
+          <div>
+            <span
+              style={{
+                display: 'inline-block',
+                width: 7,
+                height: 7,
+                borderRadius: 999,
+                background: KESSEY_PURPLE,
+                marginRight: 8,
+                verticalAlign: 'middle',
+                boxShadow: '0 0 12px rgba(157,0,255,0.85)',
+              }}
+            />
+            KESSEY RECORDS · BUDAPEST
+          </div>
+        </div>
+      </div>
+    </div>
   );
 };

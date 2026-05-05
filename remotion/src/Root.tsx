@@ -4,8 +4,8 @@ import {getAudioDurationInSeconds} from '@remotion/media-utils';
 import {Rings, RingsProps} from './Rings';
 
 const FPS = 60;
-const WIDTH = 3840;
-const HEIGHT = 2160;
+const WIDTH = 1920;
+const HEIGHT = 1080;
 
 const resolveAudioUrl = (audioUrl: string): string => {
   if (/^(https?:|file:|data:)/.test(audioUrl)) return audioUrl;
@@ -33,12 +33,12 @@ export const RemotionRoot: React.FC = () => {
       height={HEIGHT}
       durationInFrames={1800}
       defaultProps={{
-        artist: 'R.DAWE & DANK.L',
-        title: 'Fortune Dream',
-        catalog: 'KSY—026',
+        artist: 'WALENTIN',
+        title: 'Lépegetés',
+        catalog: 'KR017',
         year: '2026',
         audioUrl: staticFile('demo.wav'),
-        paletteKey: 'violet' as const,
+        paletteKey: 'default' as const,
       }}
       calculateMetadata={calculateMetadata}
     />

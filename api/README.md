@@ -39,18 +39,20 @@ Render job létrehozása. Bearer token kötelező.
 
 ```json
 {
-  "artist": "R.DAWE & DANK.L",
-  "title": "Fortune Dream",
-  "catalog": "KSY—026",
+  "artist": "WALENTIN",
+  "title": "Lépegetés",
+  "catalog": "KR017",
   "year": "2026",
   "audio_url": "https://....supabase.co/storage/v1/object/sign/tracks/track.wav?token=...",
-  "palette_key": "coronita",
+  "palette_key": "default",
   "output_bucket": "videos",
-  "output_path": "ksy-026/fortune-dream.mp4",
+  "output_path": "kr017/lepegetes.mp4",
   "external_ref": "release_uuid_or_track_id",
   "callback_url": "https://dashboard.kessey.hu/api/internal/render-callback"
 }
 ```
+
+A `palette_key` opcionális — kihagyása esetén az API automatikusan a `"default"` Visualiser-presetet használja. Régi kliensek által küldött bármilyen palette (`violet`, `mono`, `ultra`, `coronita`, `funky-house`) szintén a `"default"`-ra normalizálódik.
 
 Válasz `202`:
 ```json

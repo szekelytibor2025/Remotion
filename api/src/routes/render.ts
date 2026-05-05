@@ -7,15 +7,21 @@ import {logger} from '../lib/logger.js';
 
 const router = Router();
 
-const PALETTE_KEYS = ['violet', 'mono', 'ultra', 'coronita', 'funky-house'] as const;
-
+// The visualiser ships a single brand-pure preset. Older clients may still
+// send legacy palette names (violet/mono/ultra/coronita/funky-house); we
+// transparently fold any incoming palette_key onto 'default' so the request
+// never fails on an unknown value, and missing palette_key becomes 'default'.
 const renderRequestSchema = z.object({
   artist: z.string().min(1).max(200),
   title: z.string().min(1).max(200),
   catalog: z.string().min(1).max(50),
   year: z.string().min(1).max(10),
   audio_url: z.string().url().max(2000),
-  palette_key: z.enum(PALETTE_KEYS),
+  palette_key: z
+    .string()
+    .max(50)
+    .optional()
+    .transform(() => 'default' as const),
   output_bucket: z.string().min(1).max(100),
   output_path: z.string().min(1).max(500),
   external_ref: z.string().max(200).optional(),
