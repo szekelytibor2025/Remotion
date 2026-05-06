@@ -21,6 +21,7 @@ const schema = z.object({
   WEBHOOK_HMAC_SECRET: z.string().min(16),
 
   WORK_DIR: z.string().default('./work'),
+  ASSET_SERVER_PORT: z.coerce.number().default(3101),
 
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });

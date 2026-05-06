@@ -14,11 +14,15 @@ import {
 } from './db/jobs.js';
 import {downloadAudio, uploadVideo} from './lib/supabase.js';
 import {probeAudioDurationSeconds} from './lib/ffprobe.js';
+import {assetUrlFor, startAssetServer} from './lib/asset-server.js';
 import {renderRingsVideo, warmBundle} from './lib/render.js';
 import {sendWebhook, WebhookPayload} from './lib/webhook.js';
 import {runMigrations} from './db/migrate.js';
 
 runMigrations();
+
+logger.info('Starting asset server...');
+await startAssetServer();
 
 logger.info('Warming Remotion bundle...');
 await warmBundle();
@@ -70,7 +74,7 @@ const worker = new Worker<RenderJobData>(
 
       updateJobStatus(jobId, 'rendering', 5);
       logger.info({jobId}, 'Rendering video');
-      const audioFileUrl = `file://${audioPath.replace(/\\/g, '/')}`;
+      const audioFileUrl = assetUrlFor(audioPath);
       const result = await renderRingsVideo({
         outputLocation: videoPath,
         inputProps: {
