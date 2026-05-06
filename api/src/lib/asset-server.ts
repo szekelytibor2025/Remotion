@@ -20,20 +20,31 @@ export const startAssetServer = (): Promise<string> =>
   new Promise((resolve, reject) => {
     if (baseUrl) return resolve(baseUrl);
 
+    const CORS_HEADERS = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+      'Access-Control-Allow-Headers': 'Range, Content-Type',
+      'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges',
+    };
+
     server = http.createServer((req, res) => {
       if (!req.url) {
-        res.writeHead(400).end();
+        res.writeHead(400, CORS_HEADERS).end();
+        return;
+      }
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, CORS_HEADERS).end();
         return;
       }
       const url = new URL(req.url, `http://${HOST}`);
       const filePath = safeResolve(decodeURIComponent(url.pathname));
       if (!filePath) {
-        res.writeHead(403).end();
+        res.writeHead(403, CORS_HEADERS).end();
         return;
       }
       fs.stat(filePath, (err, stat) => {
         if (err || !stat.isFile()) {
-          res.writeHead(404).end();
+          res.writeHead(404, CORS_HEADERS).end();
           return;
         }
         const range = req.headers.range;
@@ -47,10 +58,13 @@ export const startAssetServer = (): Promise<string> =>
                 ? Number.parseInt(match[2], 10)
                 : total - 1;
             if (start >= total || end >= total) {
-              res.writeHead(416, {'Content-Range': `bytes */${total}`}).end();
+              res
+                .writeHead(416, {...CORS_HEADERS, 'Content-Range': `bytes */${total}`})
+                .end();
               return;
             }
             res.writeHead(206, {
+              ...CORS_HEADERS,
               'Content-Range': `bytes ${start}-${end}/${total}`,
               'Accept-Ranges': 'bytes',
               'Content-Length': end - start + 1,
@@ -60,6 +74,7 @@ export const startAssetServer = (): Promise<string> =>
           }
         }
         res.writeHead(200, {
+          ...CORS_HEADERS,
           'Content-Length': total,
           'Accept-Ranges': 'bytes',
         });
