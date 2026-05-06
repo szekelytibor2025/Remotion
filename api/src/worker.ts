@@ -13,6 +13,7 @@ import {
   updateJobStatus,
 } from './db/jobs.js';
 import {downloadAudio, uploadVideo} from './lib/supabase.js';
+import {probeAudioDurationSeconds} from './lib/ffprobe.js';
 import {renderRingsVideo, warmBundle} from './lib/render.js';
 import {sendWebhook, WebhookPayload} from './lib/webhook.js';
 import {runMigrations} from './db/migrate.js';
@@ -64,6 +65,9 @@ const worker = new Worker<RenderJobData>(
       logger.info({jobId}, 'Downloading audio');
       await downloadAudio(job.audio_url, audioPath);
 
+      const audioDurationSeconds = await probeAudioDurationSeconds(audioPath);
+      logger.info({jobId, audioDurationSeconds}, 'Audio duration probed');
+
       updateJobStatus(jobId, 'rendering', 5);
       logger.info({jobId}, 'Rendering video');
       const audioFileUrl = `file://${audioPath.replace(/\\/g, '/')}`;
@@ -76,6 +80,7 @@ const worker = new Worker<RenderJobData>(
           year: job.year,
           audioUrl: audioFileUrl,
           paletteKey: job.palette_key as 'default',
+          durationInSeconds: audioDurationSeconds,
         },
         onProgress: (pct) => {
           const overall = 5 + Math.round(pct * 0.85);

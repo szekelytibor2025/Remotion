@@ -45,6 +45,9 @@ COPY --from=build /app/remotion ./remotion
 COPY --from=deps /app/api/node_modules ./api/node_modules
 COPY --from=build /app/api/dist ./api/dist
 COPY --from=build /app/api/package.json ./api/package.json
+COPY --from=build /app/api/scripts ./api/scripts
+COPY --from=build /app/api/src ./api/src
+COPY --from=build /app/api/tsconfig.json ./api/tsconfig.json
 
 WORKDIR /app/api
 

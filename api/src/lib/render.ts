@@ -40,6 +40,7 @@ export type RenderInputProps = {
   year: string;
   audioUrl: string;
   paletteKey: 'default';
+  durationInSeconds?: number;
 };
 
 export type RenderOptions = {
@@ -92,7 +93,7 @@ export const renderRingsVideo = async (
     concurrency: env.REMOTION_CONCURRENCY,
     onProgress: ({progress}) => {
       const pct = Math.round(progress * 100);
-      if (pct >= lastReported + 5) {
+      if (pct > lastReported) {
         lastReported = pct;
         options.onProgress?.(pct);
       }

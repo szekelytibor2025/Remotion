@@ -16,10 +16,13 @@ const calculateMetadata: CalculateMetadataFunction<RingsProps> = async ({
   props,
 }) => {
   const resolvedAudioUrl = resolveAudioUrl(props.audioUrl);
-  const durationSeconds = await getAudioDurationInSeconds(resolvedAudioUrl);
+  const durationSeconds =
+    typeof props.durationInSeconds === 'number' && props.durationInSeconds > 0
+      ? props.durationInSeconds
+      : await getAudioDurationInSeconds(resolvedAudioUrl);
   return {
     durationInFrames: Math.max(1, Math.round(durationSeconds * FPS)),
-    props: {...props, audioUrl: resolvedAudioUrl},
+    props: {...props, audioUrl: resolvedAudioUrl, durationInSeconds: durationSeconds},
   };
 };
 

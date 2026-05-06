@@ -22,6 +22,7 @@ export type RingsProps = {
   year: string;
   audioUrl: string;
   paletteKey: PaletteKey;
+  durationInSeconds?: number;
 };
 
 const VIEWBOX_W = 1920;
