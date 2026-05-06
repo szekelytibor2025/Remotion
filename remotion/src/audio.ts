@@ -1,5 +1,5 @@
-import {useEffect, useState, useMemo} from 'react';
-import {getAudioData, AudioData} from '@remotion/media-utils';
+import {useMemo} from 'react';
+import {useAudioData, AudioData} from '@remotion/media-utils';
 
 // =============================================================================
 // Audio analysis pipeline for the Rings visualiser.
@@ -677,22 +677,7 @@ export const useFullAnalysis = (
   audioUrl: string,
   fps: number,
 ): FullAnalysis | null => {
-  const [audioData, setAudioData] = useState<AudioData | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setAudioData(null);
-    getAudioData(audioUrl)
-      .then((data) => {
-        if (!cancelled) setAudioData(data);
-      })
-      .catch((err) => {
-        console.error('Failed to load audio data:', err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [audioUrl]);
+  const audioData = useAudioData(audioUrl);
 
   return useMemo(() => {
     if (!audioData) return null;
